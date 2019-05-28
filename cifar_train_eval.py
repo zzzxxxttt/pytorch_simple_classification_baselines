@@ -52,7 +52,7 @@ def main():
 
   # Data
   print('==> Preparing data..')
-  trainset = dataset(root=cfg.data_dir, train=True,
+  trainset = dataset(root=cfg.data_dir, train=True, download=True,
                      transform=cifar_transform(is_training=True))
   train_loader = torch.utils.data.DataLoader(trainset,
                                              batch_size=cfg.train_batch_size,
