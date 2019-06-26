@@ -23,6 +23,8 @@ torch.backends.cudnn.benchmark = True
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')
 
+parser.add_argument('--local_rank', dest='local_rank', type=int, default=0)
+
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
 parser.add_argument('--log_name', type=str, default='alexnet_baseline')
@@ -53,14 +55,19 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cfg.use_gpu
 
 
 def main():
+  torch.cuda.set_device(cfg.local_rank)
+  torch.distributed.init_process_group(backend='nccl', init_method='env://')
+
   print('Prepare dataset ...')
   traindir = os.path.join(cfg.data_dir, 'train')
   train_dataset = datasets.ImageFolder(traindir, imagenet_transform(is_training=True))
+  train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
   train_loader = torch.utils.data.DataLoader(train_dataset,
                                              batch_size=cfg.train_batch_size,
                                              shuffle=True,
                                              num_workers=cfg.num_workers,
-                                             pin_memory=True)
+                                             pin_memory=True,
+                                             sampler=train_sampler)
 
   evaldir = os.path.join(cfg.data_dir, 'val')
   val_dataset = datasets.ImageFolder(evaldir, imagenet_transform(is_training=False))
@@ -72,8 +79,10 @@ def main():
 
   # create model
   print("=> creating model alexnet")
-  model = resnet50()
-  model = torch.nn.DataParallel(model).cuda()
+  model = resnet18().cuda()
+  model = nn.parallel.DistributedDataParallel(model,
+                                              device_ids=[cfg.local_rank, ],
+                                              output_device=cfg.local_rank)
 
   optimizer = torch.optim.SGD(model.parameters(), cfg.lr, momentum=0.9, weight_decay=cfg.wd)
   lr_schedulr = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60, 90], 0.1)
@@ -97,7 +106,7 @@ def main():
       loss.backward()
       optimizer.step()
 
-      if batch_idx % cfg.log_interval == 0:
+      if cfg.local_rank == 0 and batch_idx % cfg.log_interval == 0:
         step = len(train_loader) * epoch + batch_idx
         duration = time.time() - start_time
 
@@ -138,9 +147,10 @@ def main():
   for epoch in range(cfg.max_epochs):
     lr_schedulr.step(epoch)
     train(epoch)
-    validate(epoch)
-    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    if cfg.local_rank == 0:
+      validate(epoch)
+      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 

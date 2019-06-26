@@ -24,12 +24,8 @@ class LeNet(nn.Module):
 
 
 if __name__ == '__main__':
-  features = []
-
-
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
-    features.append(output.data.cpu().numpy())
 
 
   net = LeNet()

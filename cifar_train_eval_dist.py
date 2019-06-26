@@ -16,6 +16,8 @@ from utils.preprocessing import *
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')
 
+parser.add_argument('--local_rank', dest='local_rank', type=int, default=0)
+
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
 parser.add_argument('--log_name', type=str, default='resnet20_baseline')
@@ -30,8 +32,8 @@ parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--max_epochs', type=int, default=200)
 
 parser.add_argument('--log_interval', type=int, default=10)
-parser.add_argument('--use_gpu', type=str, default='0')
-parser.add_argument('--num_workers', type=int, default=0)
+parser.add_argument('--gpus', type=str, default='0,1')
+parser.add_argument('--num_workers', type=int, default=10)
 
 cfg = parser.parse_args()
 
@@ -42,20 +44,25 @@ os.makedirs(cfg.log_dir, exist_ok=True)
 os.makedirs(cfg.ckpt_dir, exist_ok=True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = cfg.use_gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpus
 
 
 def main():
+  torch.cuda.set_device(cfg.local_rank)
+  torch.distributed.init_process_group(backend='nccl', init_method='env://')
+
   dataset = torchvision.datasets.CIFAR10
 
   # Data
   print('==> Preparing data..')
   trainset = dataset(root=cfg.data_dir, train=True, download=True,
                      transform=cifar_transform(is_training=True))
+  train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
   train_loader = torch.utils.data.DataLoader(trainset,
-                                             batch_size=cfg.train_batch_size,
-                                             shuffle=True,
-                                             num_workers=cfg.num_workers)
+                                             batch_size=cfg.train_batch_size // len(cfg.gpus.split(',')),
+                                             shuffle=False,
+                                             num_workers=cfg.num_workers,
+                                             sampler=train_sampler)
 
   testset = dataset(root=cfg.data_dir, train=False,
                     transform=cifar_transform(is_training=False))
@@ -66,6 +73,9 @@ def main():
 
   print('==> Building model..')
   model = resnet20().cuda()
+  model = nn.parallel.DistributedDataParallel(model,
+                                              device_ids=[cfg.local_rank, ],
+                                              output_device=cfg.local_rank)
 
   optimizer = torch.optim.SGD(model.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=cfg.wd)
   lr_schedulr = optim.lr_scheduler.StepLR(optimizer, 60, 0.1)
@@ -87,7 +97,7 @@ def main():
       loss.backward()
       optimizer.step()
 
-      if batch_idx % cfg.log_interval == 0:
+      if cfg.local_rank == 0 and batch_idx % cfg.log_interval == 0:
         step = len(train_loader) * epoch + batch_idx
         duration = time.time() - start_time
 
@@ -116,9 +126,10 @@ def main():
   for epoch in range(cfg.max_epochs):
     lr_schedulr.step(epoch)
     train(epoch)
-    test(epoch)
-    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    if cfg.local_rank == 0:
+      test(epoch)
+      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 

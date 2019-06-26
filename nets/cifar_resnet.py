@@ -40,29 +40,29 @@ class PreActResNet(nn.Module):
     self.in_planes = 16
 
     self.conv0 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+    last_c = 16
 
-    self.block1 = self._make_layer(block, 16, num_units[0], stride=1)
-    self.block2 = self._make_layer(block, 32, num_units[1], stride=2)
-    self.block3 = self._make_layer(block, 64, num_units[2], stride=2)
+    strides = [1] * num_units[0] + \
+              [2] + [1] * (num_units[1] - 1) + \
+              [2] + [1] * (num_units[2] - 1)
+    channels = [16] * num_units[0] + \
+               [32] * num_units[1] + \
+               [64] * num_units[2]
+
+    self.blocks = nn.ModuleList()
+    for channel, stride in zip(channels, strides):
+      self.blocks.append(block(last_c, channel, stride))
+      last_c = channel
+
     self.bn = nn.BatchNorm2d(64)
     self.logit = nn.Linear(64, num_classes)
 
-  def _make_layer(self, block, out_planes, num_units, stride):
-    strides = [stride] + [1] * (num_units - 1)
-    units = []
-    for i, stride in enumerate(strides):
-      units.append(block(self.in_planes, out_planes, stride))
-      self.in_planes = out_planes
-    return nn.Sequential(*units)
-
   def forward(self, x):
     out = self.conv0(x)
-    out = self.block1(out)
-    out = self.block2(out)
-    out = self.block3(out)
+    for block in self.blocks:
+      out = block(out)
     out = self.bn(out)
-    out = out.mean(2).mean(2)
-    out = out.view(out.size(0), -1)
+    out = out.mean(3).mean(2)
     out = self.logit(out)
     return out
 
@@ -76,15 +76,12 @@ def resnet56(num_classes=10):
 
 
 if __name__ == '__main__':
-  features = []
-
 
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
-    features.append(output.data.cpu().numpy())
 
 
-  net = resnet20()
+  net = resnet56()
   for m in net.modules():
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
       m.register_forward_hook(hook)

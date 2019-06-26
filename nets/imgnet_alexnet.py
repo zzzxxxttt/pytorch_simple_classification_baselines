@@ -50,13 +50,8 @@ def alexnet():
 
 
 if __name__ == '__main__':
-  features = []
-
-
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
-    features.append(output.data.cpu().numpy())
-
 
   net = alexnet()
 

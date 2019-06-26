@@ -32,15 +32,13 @@ class VGG(nn.Module):
 
     self.conv = nn.Sequential(*layers)
 
-    self.fc = nn.Sequential(
-      nn.Linear(in_channels * 7 * 7, fc_config[0]),
-      nn.ReLU(True),
-      nn.Dropout(),
-      nn.Linear(fc_config[0], fc_config[1]),
-      nn.ReLU(True),
-      nn.Dropout(),
-      nn.Linear(fc_config[1], num_classes),
-    )
+    self.fc = nn.Sequential(nn.Linear(in_channels * 7 * 7, fc_config[0]),
+                            nn.ReLU(True),
+                            nn.Dropout(),
+                            nn.Linear(fc_config[0], fc_config[1]),
+                            nn.ReLU(True),
+                            nn.Dropout(),
+                            nn.Linear(fc_config[1], num_classes))
 
   def forward(self, x):
     x = self.conv(x)
@@ -60,13 +58,8 @@ def vgg16():
 
 
 if __name__ == '__main__':
-  features = []
-
-
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
-    features.append(output.data.cpu().numpy())
-
 
   net = vgg16()
   for m in net.modules():

@@ -66,13 +66,8 @@ def vgg16(num_classes=10):
 
 
 if __name__ == '__main__':
-  features = []
-
-
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
-    features.append(output.data.cpu().numpy())
-
 
   net = vgg16().cuda()
   for m in net.modules():
