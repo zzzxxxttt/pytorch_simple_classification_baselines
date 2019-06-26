@@ -8,11 +8,11 @@ import torch.optim as optim
 import torch.distributed as dist
 
 import torchvision
-from tensorboardX import SummaryWriter
 
 from nets.cifar_vgg import *
 from nets.cifar_resnet import *
 from utils.preprocessing import *
+from utils.summary import SummaryWriter
 
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')

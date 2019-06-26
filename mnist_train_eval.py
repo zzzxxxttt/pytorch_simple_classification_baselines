@@ -4,11 +4,11 @@ import argparse
 from datetime import datetime
 
 import torch.optim as optim
-from tensorboardX import SummaryWriter
 from torchvision import datasets
 
 from nets.mnist_lenet import *
 from utils.preprocessing import *
+from utils.summary import SummaryWriter
 
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')

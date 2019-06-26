@@ -1,12 +1,12 @@
 # Pytorch simple classification baselines
 
 This repository contains simple pytorch version of LeNet-5(MNIST), ResNet(CIFAR, ImageNet), AlexNet(ImageNet), VGG-16(CIFAR, ImageNet) baselines.
-There are both **nn.DataParallel** version and **nn.parallel.DistributedDataParallel** version for multi GPU training, I highly recommand using **nn.parallel.DistributedDataParallel** version since it's ~30% faster than using **nn.DataParallel**.     
+There are both **nn.DataParallel** version and **nn.parallel.DistributedDataParallel** version for multi GPU training, I highly recommand using nn.parallel.DistributedDataParallel since it's considerably faster than using nn.DataParallel.     
  
 ## Requirements:
 - python>=3.5
 - pytorch>=1.1.0
-- tensorboardX
+- tensorboardX(optional)
 
 ## Train 
 

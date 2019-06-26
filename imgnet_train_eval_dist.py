@@ -10,13 +10,12 @@ import torch.optim as optim
 import torch.distributed as dist
 import torchvision.datasets as datasets
 
-from tensorboardX import SummaryWriter
-
 from nets.imgnet_alexnet import *
 from nets.imgnet_resnet import *
 from nets.imgnet_vgg import *
 
 from utils.preprocessing import *
+from utils.summary import SummaryWriter
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.backends.cudnn.benchmark = True
