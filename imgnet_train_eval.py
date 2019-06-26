@@ -19,7 +19,7 @@ from utils.preprocessing import *
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.backends.cudnn.benchmark = True
-
+nn.SyncBatchNorm
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')
 

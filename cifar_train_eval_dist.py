@@ -5,6 +5,7 @@ from datetime import datetime
 
 import torch
 import torch.optim as optim
+import torch.distributed as dist
 
 import torchvision
 from tensorboardX import SummaryWriter
@@ -16,7 +17,7 @@ from utils.preprocessing import *
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')
 
-parser.add_argument('--local_rank', dest='local_rank', type=int, default=0)
+parser.add_argument('--local_rank', type=int, default=0)
 
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
@@ -48,8 +49,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpus
 
 
 def main():
+  device = torch.device('cuda:%d' % cfg.local_rank)
+  num_gpus = len(cfg.gpus.split(','))
+
   torch.cuda.set_device(cfg.local_rank)
-  torch.distributed.init_process_group(backend='nccl', init_method='env://')
+  dist.init_process_group(backend='nccl', init_method='env://',
+                          world_size=num_gpus, rank=cfg.local_rank)
 
   dataset = torchvision.datasets.CIFAR10
 
@@ -57,9 +62,11 @@ def main():
   print('==> Preparing data..')
   trainset = dataset(root=cfg.data_dir, train=True, download=True,
                      transform=cifar_transform(is_training=True))
-  train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+  train_sampler = torch.utils.data.distributed.DistributedSampler(trainset,
+                                                                  num_replicas=num_gpus,
+                                                                  rank=cfg.local_rank)
   train_loader = torch.utils.data.DataLoader(trainset,
-                                             batch_size=cfg.train_batch_size // len(cfg.gpus.split(',')),
+                                             batch_size=cfg.train_batch_size // num_gpus,
                                              shuffle=False,
                                              num_workers=cfg.num_workers,
                                              sampler=train_sampler)
@@ -72,7 +79,9 @@ def main():
                                             num_workers=cfg.num_workers)
 
   print('==> Building model..')
-  model = resnet20().cuda()
+  model = resnet20()
+  model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+  model = model.to(device)
   model = nn.parallel.DistributedDataParallel(model,
                                               device_ids=[cfg.local_rank, ],
                                               output_device=cfg.local_rank)
@@ -90,8 +99,10 @@ def main():
 
     start_time = time.time()
     for batch_idx, (inputs, targets) in enumerate(train_loader):
-      outputs = model(inputs.cuda())
-      loss = criterion(outputs, targets.cuda())
+      inputs, targets = inputs.to(device), targets.to(device)
+
+      outputs = model(inputs)
+      loss = criterion(outputs, targets)
 
       optimizer.zero_grad()
       loss.backward()
@@ -114,9 +125,11 @@ def main():
     correct = 0
     with torch.no_grad():
       for batch_idx, (inputs, targets) in enumerate(test_loader):
-        outputs = model(inputs.cuda())
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        outputs = model(inputs)
         _, predicted = torch.max(outputs.data, 1)
-        correct += predicted.eq(targets.cuda().data).cpu().sum().item()
+        correct += predicted.eq(targets.data).cpu().sum().item()
 
       acc = 100. * correct / len(test_loader.dataset)
       print('%s Precision@1 ==> %.2f%% \n' % (datetime.now(), acc))
@@ -126,10 +139,9 @@ def main():
   for epoch in range(cfg.max_epochs):
     lr_schedulr.step(epoch)
     train(epoch)
-    if cfg.local_rank == 0:
-      test(epoch)
-      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    test(epoch)
+    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 

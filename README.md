@@ -5,7 +5,7 @@ There are both **nn.DataParallel** version and **nn.parallel.DistributedDataPara
  
 ## Requirements:
 - python>=3.5
-- pytorch>=0.4.1
+- pytorch>=1.1.0
 - tensorboardX
 
 ## Train 

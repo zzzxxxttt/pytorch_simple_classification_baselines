@@ -7,6 +7,7 @@ from PIL import ImageFile
 
 import torch
 import torch.optim as optim
+import torch.distributed as dist
 import torchvision.datasets as datasets
 
 from tensorboardX import SummaryWriter
@@ -23,7 +24,7 @@ torch.backends.cudnn.benchmark = True
 # Training settings
 parser = argparse.ArgumentParser(description='classification_baselines')
 
-parser.add_argument('--local_rank', dest='local_rank', type=int, default=0)
+parser.add_argument('--local_rank', type=int, default=0)
 
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
@@ -39,7 +40,7 @@ parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--max_epochs', type=int, default=100)
 
 parser.add_argument('--log_interval', type=int, default=10)
-parser.add_argument('--use_gpu', type=str, default='3')
+parser.add_argument('--gpus', type=str, default='3')
 parser.add_argument('--num_workers', type=int, default=20)
 
 cfg = parser.parse_args()
@@ -51,20 +52,26 @@ os.makedirs(cfg.log_dir, exist_ok=True)
 os.makedirs(cfg.ckpt_dir, exist_ok=True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = cfg.use_gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpus
 
 
 def main():
+  device = torch.device('cuda:%d' % cfg.local_rank)
+  num_gpus = len(cfg.gpus.split(','))
+
   torch.cuda.set_device(cfg.local_rank)
-  torch.distributed.init_process_group(backend='nccl', init_method='env://')
+  dist.init_process_group(backend='nccl', init_method='env://',
+                          world_size=num_gpus, rank=cfg.local_rank)
 
   print('Prepare dataset ...')
   traindir = os.path.join(cfg.data_dir, 'train')
   train_dataset = datasets.ImageFolder(traindir, imagenet_transform(is_training=True))
-  train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+  train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset,
+                                                                  num_replicas=num_gpus,
+                                                                  rank=cfg.local_rank)
   train_loader = torch.utils.data.DataLoader(train_dataset,
                                              batch_size=cfg.train_batch_size,
-                                             shuffle=True,
+                                             shuffle=False,
                                              num_workers=cfg.num_workers,
                                              pin_memory=True,
                                              sampler=train_sampler)
@@ -79,7 +86,9 @@ def main():
 
   # create model
   print("=> creating model alexnet")
-  model = resnet18().cuda()
+  model = resnet18()
+  model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+  model = model.to(device)
   model = nn.parallel.DistributedDataParallel(model,
                                               device_ids=[cfg.local_rank, ],
                                               output_device=cfg.local_rank)
@@ -96,10 +105,11 @@ def main():
 
     start_time = time.time()
     for batch_idx, (inputs, targets) in enumerate(train_loader):
+      inputs, targets = inputs.to(device), targets.to(device)
 
       # compute output
-      outputs = model(inputs.cuda())
-      loss = criterion(outputs, targets.cuda())
+      outputs = model(inputs)
+      loss = criterion(outputs, targets)
 
       # compute gradient and do SGD step
       optimizer.zero_grad()
@@ -125,13 +135,15 @@ def main():
     top5 = 0
     with torch.no_grad():
       for i, (inputs, targets) in tqdm(enumerate(val_loader)):
+        inputs, targets = inputs.to(device), targets.to(device)
+
         # compute output
-        output = model(inputs.cuda())
+        output = model(inputs)
 
         # measure accuracy and record loss
         _, pred = output.data.topk(5, dim=1, largest=True, sorted=True)
         pred = pred.t()
-        correct = pred.eq(targets.cuda().view(1, -1).expand_as(pred))
+        correct = pred.eq(targets.view(1, -1).expand_as(pred))
 
         top1 += correct[:1].view(-1).float().sum(0, keepdim=True).item()
         top5 += correct[:5].view(-1).float().sum(0, keepdim=True).item()
@@ -147,10 +159,9 @@ def main():
   for epoch in range(cfg.max_epochs):
     lr_schedulr.step(epoch)
     train(epoch)
-    if cfg.local_rank == 0:
-      validate(epoch)
-      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    validate(epoch)
+    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 
