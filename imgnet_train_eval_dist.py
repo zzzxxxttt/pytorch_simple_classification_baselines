@@ -69,7 +69,7 @@ def main():
                                                                   num_replicas=num_gpus,
                                                                   rank=cfg.local_rank)
   train_loader = torch.utils.data.DataLoader(train_dataset,
-                                             batch_size=cfg.train_batch_size,
+                                             batch_size=cfg.train_batch_size // num_gpus,
                                              shuffle=False,
                                              num_workers=cfg.num_workers,
                                              pin_memory=True,
@@ -85,7 +85,7 @@ def main():
 
   # create model
   print("=> creating model alexnet")
-  model = alexnet()
+  model = resnet18()
   model = model.to(device)
   model = nn.parallel.DistributedDataParallel(model,
                                               device_ids=[cfg.local_rank, ],
