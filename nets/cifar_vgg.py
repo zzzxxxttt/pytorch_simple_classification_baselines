@@ -69,10 +69,13 @@ if __name__ == '__main__':
   def hook(self, input, output):
     print(output.data.cpu().numpy().shape)
 
-  net = vgg16().cuda()
+  net = vgg16()
+
+  torch.save(net.state_dict(),'../ckpt/vgg16_baseline_p/init.t7')
+
   for m in net.modules():
     if isinstance(m, nn.Conv2d):
       m.register_forward_hook(hook)
 
-  y = net(torch.randn(1, 3, 32, 32).cuda())
+  y = net(torch.randn(1, 3, 32, 32))
   print(y.size())

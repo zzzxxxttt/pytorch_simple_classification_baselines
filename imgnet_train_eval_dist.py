@@ -39,7 +39,7 @@ parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--max_epochs', type=int, default=100)
 
 parser.add_argument('--log_interval', type=int, default=10)
-parser.add_argument('--gpus', type=str, default='3')
+parser.add_argument('--gpus', type=str, default='0')
 parser.add_argument('--num_workers', type=int, default=20)
 
 cfg = parser.parse_args()
@@ -56,7 +56,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpus
 
 def main():
   device = torch.device('cuda:%d' % cfg.local_rank)
-  num_gpus = len(cfg.gpus.split(','))
+  num_gpus = torch.cuda.device_count()
 
   torch.cuda.set_device(cfg.local_rank)
   dist.init_process_group(backend='nccl', init_method='env://',
@@ -85,8 +85,7 @@ def main():
 
   # create model
   print("=> creating model alexnet")
-  model = resnet18()
-  model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+  model = alexnet()
   model = model.to(device)
   model = nn.parallel.DistributedDataParallel(model,
                                               device_ids=[cfg.local_rank, ],
@@ -156,11 +155,13 @@ def main():
     return
 
   for epoch in range(cfg.max_epochs):
-    lr_schedulr.step(epoch)
+    train_sampler.set_epoch(epoch)
     train(epoch)
     validate(epoch)
-    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    lr_schedulr.step(epoch)
+    if cfg.local_rank == 0:
+      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 

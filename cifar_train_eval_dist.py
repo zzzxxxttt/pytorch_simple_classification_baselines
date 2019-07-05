@@ -21,9 +21,9 @@ parser.add_argument('--local_rank', type=int, default=0)
 
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
-parser.add_argument('--log_name', type=str, default='resnet20_baseline')
+parser.add_argument('--log_name', type=str, default='vgg16_baseline_np3')
 parser.add_argument('--pretrain', action='store_true', default=False)
-parser.add_argument('--pretrain_dir', type=str, default='./ckpt/')
+parser.add_argument('--pretrain_dir', type=str, default='')
 
 parser.add_argument('--lr', type=float, default=0.1)
 parser.add_argument('--wd', type=float, default=5e-4)
@@ -33,8 +33,8 @@ parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--max_epochs', type=int, default=200)
 
 parser.add_argument('--log_interval', type=int, default=10)
-parser.add_argument('--gpus', type=str, default='0,1')
-parser.add_argument('--num_workers', type=int, default=10)
+parser.add_argument('--gpus', type=str, default='2,3')
+parser.add_argument('--num_workers', type=int, default=5)
 
 cfg = parser.parse_args()
 
@@ -50,7 +50,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpus
 
 def main():
   device = torch.device('cuda:%d' % cfg.local_rank)
-  num_gpus = len(cfg.gpus.split(','))
+  num_gpus = torch.cuda.device_count()
 
   torch.cuda.set_device(cfg.local_rank)
   dist.init_process_group(backend='nccl', init_method='env://',
@@ -79,15 +79,15 @@ def main():
                                             num_workers=cfg.num_workers)
 
   print('==> Building model..')
-  model = resnet20()
-  model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+  # model = resnet20()
+  model = vgg16()
   model = model.to(device)
   model = nn.parallel.DistributedDataParallel(model,
                                               device_ids=[cfg.local_rank, ],
                                               output_device=cfg.local_rank)
 
   optimizer = torch.optim.SGD(model.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=cfg.wd)
-  lr_schedulr = optim.lr_scheduler.StepLR(optimizer, 60, 0.1)
+  lr_schedulr = optim.lr_scheduler.MultiStepLR(optimizer, [60, 120, 180], 0.1)
   criterion = torch.nn.CrossEntropyLoss()
 
   summary_writer = SummaryWriter(cfg.log_dir)
@@ -137,11 +137,13 @@ def main():
     return
 
   for epoch in range(cfg.max_epochs):
-    lr_schedulr.step(epoch)
+    train_sampler.set_epoch(epoch)
     train(epoch)
     test(epoch)
-    torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
-    print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+    lr_schedulr.step(epoch)
+    if cfg.local_rank == 0:
+      torch.save(model.state_dict(), os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
+      print('checkpoint saved to %s !' % os.path.join(cfg.ckpt_dir, 'checkpoint.t7'))
 
   summary_writer.close()
 

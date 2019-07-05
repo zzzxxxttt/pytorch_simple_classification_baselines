@@ -18,19 +18,19 @@ parser = argparse.ArgumentParser(description='classification_baselines')
 
 parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
-parser.add_argument('--log_name', type=str, default='resnet20_baseline')
+parser.add_argument('--log_name', type=str, default='vgg16_baseline_2gpus')
 parser.add_argument('--pretrain', action='store_true', default=False)
-parser.add_argument('--pretrain_dir', type=str, default='./ckpt/')
+parser.add_argument('--pretrain_dir', type=str, default='./ckpt/vgg16_baseline_p/checkpoint.t7')
 
 parser.add_argument('--lr', type=float, default=0.1)
 parser.add_argument('--wd', type=float, default=5e-4)
 
-parser.add_argument('--train_batch_size', type=int, default=128)
+parser.add_argument('--train_batch_size', type=int, default=256)
 parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--max_epochs', type=int, default=200)
 
 parser.add_argument('--log_interval', type=int, default=10)
-parser.add_argument('--use_gpu', type=str, default='0')
+parser.add_argument('--use_gpu', type=str, default='1,2')
 parser.add_argument('--num_workers', type=int, default=0)
 
 cfg = parser.parse_args()
@@ -65,8 +65,7 @@ def main():
                                             num_workers=cfg.num_workers)
 
   print('==> Building model..')
-  model = resnet20().cuda()
-
+  model = nn.DataParallel(vgg16()).cuda()
   optimizer = torch.optim.SGD(model.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=cfg.wd)
   lr_schedulr = optim.lr_scheduler.StepLR(optimizer, 60, 0.1)
   criterion = torch.nn.CrossEntropyLoss()
