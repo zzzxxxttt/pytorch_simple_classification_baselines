@@ -29,7 +29,7 @@ def cifar_transform(is_training=True):
   return transform_list
 
 
-def imagenet_transform(is_training=True):
+def imgnet_transform(is_training=True):
   if is_training:
     transform_list = transforms.Compose([transforms.RandomResizedCrop(224),
                                          transforms.RandomHorizontalFlip(),
