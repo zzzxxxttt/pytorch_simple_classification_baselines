@@ -35,5 +35,7 @@ ResNet-56|93.68%
 VGG-16|93.99%
 
 ### ImageNet2012:
-(todo)
+Model|Top-1 Accuracy|Top-5 Accuracy
+:---:|:---:|:---:
+ResNet-18|69.67%|89.29%
 
